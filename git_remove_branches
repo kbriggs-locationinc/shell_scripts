@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 const readline = require('readline');
-const { exec } = require('child_process');
-const { stdout } = require('process');
+const { exec, spawn } = require('child_process');
 
 let branchList = [];
+let mergedBranchList = [];
 let deleteCounter = 0;
 
 const rl = readline.createInterface({
@@ -12,32 +12,52 @@ const rl = readline.createInterface({
   output: process.stdout
 });
 
-exec('git branch', (err, stdout, stderr)=> {
+exec('git branch --merged develop', (err, stdout, stderr)=> {
   if (err) {
     console.log(`Error: ${err}`)
   }
-  const unfilteredBranchList = stdout.split("\n");
-  branchList = unfilteredBranchList
-  .filter((branch)=> {
-    return branch[0] != "*" && branch.length
-  })
-  .map((branch)=> {
-    return branch.trim();
-  });
-  askQuestions();
+  mergedBranchList = filterBranches(stdout);
+  getBranches();
 })
 
-function askQuestions() {
-  rl.question(`Delete branch \x1b[32m${branchList[0]}\x1b[0m? > `, (answer)=> {
+
+function getBranches() {
+  exec('git branch', (err, stdout, stderr)=> {
+    if (err) {
+      console.log(`Error: ${err}`)
+    }
+    branchList = filterBranches(stdout);
+    askQuestions();
+  })
+}
+
+function handleResponse(answer) {
+  return new Promise((resolve, reject)=> {
     if (answer == 'y' || answer == 'yes') {
-      console.log('remove branch');
-      deleteCounter++;
-      branchList.shift();
+      exec(`git branch -D ${branchList[0]}`, (err, stdout)=> {
+        if (err) {
+          return console.log(err);
+        } else {
+          process.stdout.write(stdout)
+          deleteCounter++;
+          branchList.shift();
+          resolve()
+        }
+      });
     }
     else if (answer == 'n' || answer == 'no') {
-      console.log('dont remove branch')
+      console.log(`Spared branch ${branchList[0]}`)
       branchList.shift();
+      resolve();
     }
+  })
+}
+
+
+function askQuestions() {
+  const mergedWithDevelopWarning = mergedBranchList.includes(branchList[0]) ? "" : "\x1b[31m * Not merged with develop * \x1b[0m";
+  rl.question(`Delete branch \x1b[32m${branchList[0]}\x1b[0m? ${mergedWithDevelopWarning}> `, async (answer)=> {
+    await handleResponse(answer);
     if (branchList.length) {
       askQuestions();
     } else {
@@ -45,4 +65,15 @@ function askQuestions() {
       rl.close()
     }
   })
+}
+
+function filterBranches(input) {
+  const unfilteredBranchList = input.split("\n");
+  return unfilteredBranchList
+  .filter((branch)=> {
+    return branch[0] != "*" && branch.length
+  })
+  .map((branch)=> {
+    return branch.trim();
+  });
 }
